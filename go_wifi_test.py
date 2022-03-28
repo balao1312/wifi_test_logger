@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-from audioop import avg
 import sys
 import os
 from time import sleep
