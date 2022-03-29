@@ -34,12 +34,6 @@ class Influxdb_logger:
         time.sleep(2)
         is_send_to_db = False
 
-    try:
-        line_notify_token = db_config['line_notify_token']
-    except (NameError, ImportError, KeyError) as e:
-        print('\n==> Line notify token is not found in credential.py, notify function is disabled.')
-        time.sleep(2)
-
     def __init__(self):
 
         self.log_folder = Path.cwd().joinpath('logs')

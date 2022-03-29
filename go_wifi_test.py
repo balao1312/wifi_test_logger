@@ -17,6 +17,8 @@ class Wifi_test_logger(Influxdb_logger):
 
     def __init__(self):
         super().__init__()
+        self.log_file = self.log_folder.joinpath(
+            f'log_wifi_test_{datetime.now().date()}')
 
     def get_wifi_link_status(self):
         # iw info
@@ -64,6 +66,12 @@ class Wifi_test_logger(Influxdb_logger):
                 sleep(1)
                 continue
 
+            # output difference from iw wlo1 link
+            # wifi 5
+            # rx bitrate: 58.5 Mbit/s VHT-MCS 9 80 MHz VHT-NSS 1
+            # wifi 6
+            # rx bitrate: 1200.9 MBit/s 80MHz HE-MCS 11 HE-NSS 2 HE-GI 0 HE-DCM 0
+
             # get rx bitrate
             bitrate_pattern = re.compile(r'rx bitrate: (.*) MBit/s')
             rx_bitrate = bitrate_pattern.search(cmd_result).group(1)
@@ -73,22 +81,32 @@ class Wifi_test_logger(Influxdb_logger):
             tx_bitrate = bitrate_pattern.search(cmd_result).group(1)
 
             # get rx mcs
-            rx_mcs_pattern = re.compile(r'rx.*HE-MCS ([^ ]*) ')
-            rx_mcs = rx_mcs_pattern.search(cmd_result).group(1)
+            rx_mcs_pattern = re.compile(r'rx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
+            rx_mcs = rx_mcs_pattern.search(cmd_result).group(2)
 
             # get tx mcs
-            tx_mcs_pattern = re.compile(r'tx.*HE-MCS ([^ ]*) ')
-            tx_mcs = tx_mcs_pattern.search(cmd_result).group(1)
+            tx_mcs_pattern = re.compile(r'tx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
+            tx_mcs = tx_mcs_pattern.search(cmd_result).group(2)
 
             # get nss
-            nss_pattern = re.compile(r'HE-NSS ([^ ]*) ')
-            nss = nss_pattern.search(cmd_result).group(1)
+            nss_pattern = re.compile(r'(HE-NSS|VHT-NSS) ([\d]*)\W')
+            nss = nss_pattern.search(cmd_result).group(2)
 
             # get signal
             signal_pattern = re.compile(r'signal: (.*) dBm')
             signal = int(signal_pattern.search(cmd_result).group(1))
 
             print(f'sec: {sec}, signal: {signal} dBm. Rx_bitrate: {rx_bitrate} Mbit/s, Tx_bitrate: {tx_bitrate} Mbit/s, rx_mcs: {rx_mcs}, tx_mcs: {tx_mcs}, nss: {nss}')
+
+            record_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            data = {
+                'measurement': 'wifi_test',
+                'tags': {'loc': '7f'},
+                'time': record_time,
+                'fields': {'signal': signal}
+            }
+
+            self.logging_with_buffer(data)
 
             total += signal
             sleep(1)
