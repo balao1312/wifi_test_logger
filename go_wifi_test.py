@@ -10,11 +10,13 @@ import re
 import pexpect
 from subprocess import check_output, STDOUT
 
+from influxdb_logger import Influxdb_logger
 
-class Wifi_test_logger:
+
+class Wifi_test_logger(Influxdb_logger):
 
     def __init__(self):
-        pass
+        super().__init__()
 
     def get_wifi_link_status(self):
         # iw info
