@@ -8,9 +8,12 @@ from copy import copy
 import argparse
 import re
 import pexpect
+import threading
+import queue
 from subprocess import check_output, STDOUT
 
 from influxdb_logger import Influxdb_logger
+from ping_tool import Ping
 
 
 class Wifi_test_logger(Influxdb_logger):
@@ -20,6 +23,8 @@ class Wifi_test_logger(Influxdb_logger):
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
 
+        self.queue_ping = queue.Queue()
+
     def get_wifi_link_status(self):
         # iw info
         cmd = 'iw wlo1 info'
@@ -27,22 +32,22 @@ class Wifi_test_logger(Influxdb_logger):
 
         cmd_result = check_output(
             [cmd], timeout=3, stderr=STDOUT, shell=True).decode('utf8').strip()
-        print(cmd_result)
+        # print(cmd_result)
 
         # get ssid
         ssid_pattern = re.compile(r'ssid (.*)')
         self.ssid = ssid_pattern.search(cmd_result).group(1)
-        print(self.ssid)
+        # print(self.ssid)
 
         # get channel
         channel_pattern = re.compile(r'channel ([^,]*),')
         self.channel = channel_pattern.search(cmd_result).group(1)
-        print(self.channel)
+        # print(self.channel)
 
         # get bandwidth
         bandwidth_pattern = re.compile(r'width: (\d*) MHz')
         self.bandwidth = bandwidth_pattern.search(cmd_result).group(1)
-        print(self.bandwidth)
+        # print(self.bandwidth)
 
         ####################################################################
         # iw link
@@ -51,7 +56,7 @@ class Wifi_test_logger(Influxdb_logger):
 
         cmd_result = check_output(
             [cmd], timeout=3, stderr=STDOUT, shell=True).decode('utf8').strip()
-        print(cmd_result)
+        # print(cmd_result)
 
     def detect_signal(self, sec_to_test):
         cmd = 'iw wlo1 link'
@@ -96,14 +101,27 @@ class Wifi_test_logger(Influxdb_logger):
             signal_pattern = re.compile(r'signal: (.*) dBm')
             signal = int(signal_pattern.search(cmd_result).group(1))
 
-            print(f'sec: {sec}, signal: {signal} dBm. Rx_bitrate: {rx_bitrate} Mbit/s, Tx_bitrate: {tx_bitrate} Mbit/s, rx_mcs: {rx_mcs}, tx_mcs: {tx_mcs}, nss: {nss}')
+            # get ping latency from ping_tool
+            now_ping = self.queue_ping.get()
+            self.queue_ping.task_done()
+
+            print(
+                f'sec: {sec}, ssid: {self.ssid}, channel: {self.channel}, bandwidth: {self.bandwidth}')
+            print(
+                f'\tsignal: {signal} dBm. Rx_bitrate: {rx_bitrate} Mbit/s, Tx_bitrate: {tx_bitrate} Mbit/s, rx_mcs: {rx_mcs}, tx_mcs: {tx_mcs}, nss: {nss}.')
+            print(f'\tlatency: {now_ping} ms')
+            print('-' * 140)
 
             record_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             data = {
                 'measurement': 'wifi_test',
-                'tags': {'loc': '7f'},
+                'tags': {'position': '1'},
                 'time': record_time,
-                'fields': {'signal': signal}
+                'fields': {'ssid': self.ssid,
+                           'channel': self.channel,
+                           'bandwidth': self.bandwidth,
+                           'signal': signal
+                           }
             }
 
             self.logging_with_buffer(data)
@@ -114,12 +132,22 @@ class Wifi_test_logger(Influxdb_logger):
         self.avg_signal = round(total / sec_to_test, 2)
         print(f'Avg signal: {self.avg_signal} dBm.')
 
+        self.clean_buffer_and_send()
+
+    def start_ping(self):
+        runner = Ping(ip='192.168.50.1', tos=0, exec_secs=0,
+                      interval=1, queue=self.queue_ping)
+        runner.run()
+
     def run(self):
         print('running...')
 
         self.get_wifi_link_status()
 
-        self.detect_signal(300)
+        th = threading.Thread(target=self.start_ping, daemon=True)
+        th.start()
+
+        self.detect_signal(10)
 
 
 if __name__ == '__main__':
