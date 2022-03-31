@@ -7,23 +7,25 @@ from datetime import datetime
 from copy import copy
 import argparse
 import re
-import pexpect
 import threading
 import queue
 from subprocess import check_output, STDOUT
 
 from influxdb_logger import Influxdb_logger
-from ping_tool import Ping
+from ping_tool import Ping_runner
+from iperf3_tool import Iperf3_runner
 
 
 class Wifi_test_logger(Influxdb_logger):
 
-    def __init__(self):
+    def __init__(self, test_sec):
         super().__init__()
+        self.test_sec = test_sec
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
 
         self.queue_ping = queue.Queue()
+        self.queue_iperf = queue.Queue()
 
     def get_wifi_link_status(self):
         # iw info
@@ -46,17 +48,8 @@ class Wifi_test_logger(Influxdb_logger):
 
         # get bandwidth
         bandwidth_pattern = re.compile(r'width: (\d*) MHz')
-        self.bandwidth = bandwidth_pattern.search(cmd_result).group(1)
+        self.bandwidth = int(bandwidth_pattern.search(cmd_result).group(1))
         # print(self.bandwidth)
-
-        ####################################################################
-        # iw link
-        cmd = 'iw wlo1 link'
-        # print(f'==> cmd send: \n\n\t{cmd}\n')
-
-        cmd_result = check_output(
-            [cmd], timeout=3, stderr=STDOUT, shell=True).decode('utf8').strip()
-        # print(cmd_result)
 
     def detect_signal(self, sec_to_test):
         cmd = 'iw wlo1 link'
@@ -79,38 +72,42 @@ class Wifi_test_logger(Influxdb_logger):
 
             # get rx bitrate
             bitrate_pattern = re.compile(r'rx bitrate: (.*) MBit/s')
-            rx_bitrate = bitrate_pattern.search(cmd_result).group(1)
+            rx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
 
             # get tx bitrate
             bitrate_pattern = re.compile(r'tx bitrate: (.*) MBit/s')
-            tx_bitrate = bitrate_pattern.search(cmd_result).group(1)
+            tx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
 
             # get rx mcs
             rx_mcs_pattern = re.compile(r'rx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
-            rx_mcs = rx_mcs_pattern.search(cmd_result).group(2)
+            rx_mcs = int(rx_mcs_pattern.search(cmd_result).group(2))
 
             # get tx mcs
             tx_mcs_pattern = re.compile(r'tx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
-            tx_mcs = tx_mcs_pattern.search(cmd_result).group(2)
+            tx_mcs = int(tx_mcs_pattern.search(cmd_result).group(2))
 
             # get nss
             nss_pattern = re.compile(r'(HE-NSS|VHT-NSS) ([\d]*)\W')
-            nss = nss_pattern.search(cmd_result).group(2)
+            nss = int(nss_pattern.search(cmd_result).group(2))
 
             # get signal
             signal_pattern = re.compile(r'signal: (.*) dBm')
             signal = int(signal_pattern.search(cmd_result).group(1))
 
             # get ping latency from ping_tool
-            now_ping = self.queue_ping.get()
+            latency = self.queue_ping.get()
             self.queue_ping.task_done()
+
+            # get iperf throughput from iperf3_tool
+            throughput = self.queue_iperf.get()
+            self.queue_iperf.task_done()
 
             print(
                 f'sec: {sec}, ssid: {self.ssid}, channel: {self.channel}, bandwidth: {self.bandwidth}')
             print(
                 f'\tsignal: {signal} dBm. Rx_bitrate: {rx_bitrate} Mbit/s, Tx_bitrate: {tx_bitrate} Mbit/s, rx_mcs: {rx_mcs}, tx_mcs: {tx_mcs}, nss: {nss}.')
-            print(f'\tlatency: {now_ping} ms')
-            print('-' * 140)
+            print(f'\tlatency: {latency} ms, throughput: {throughput} Mbps')
+            print('-' * 120)
 
             record_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             data = {
@@ -120,7 +117,14 @@ class Wifi_test_logger(Influxdb_logger):
                 'fields': {'ssid': self.ssid,
                            'channel': self.channel,
                            'bandwidth': self.bandwidth,
-                           'signal': signal
+                           'signal': signal,
+                           'rx_bitrate': rx_bitrate,
+                           'tx_bitrate': tx_bitrate,
+                           'rx_mcs': rx_mcs,
+                           'tx_mcs': tx_mcs,
+                           'nss': nss,
+                           'latency': latency,
+                           'throughput': throughput
                            }
             }
 
@@ -135,23 +139,50 @@ class Wifi_test_logger(Influxdb_logger):
         self.clean_buffer_and_send()
 
     def start_ping(self):
-        runner = Ping(ip='192.168.50.1', tos=0, exec_secs=0,
-                      interval=1, queue=self.queue_ping)
+        runner = Ping_runner(ip='192.168.50.210', tos=0, exec_secs=0,
+                             interval=1, queue=self.queue_ping)
+        runner.run()
+
+    def start_iperf(self):
+        runner = Iperf3_runner(host='192.168.50.210', tos=0, port=5201, exec_secs=0,
+                               bitrate=0, udp=False, reverse=False, buffer_length=128,
+                               queue=self.queue_iperf)
         runner.run()
 
     def run(self):
-        print('running...')
-
         self.get_wifi_link_status()
 
         th = threading.Thread(target=self.start_ping, daemon=True)
         th.start()
 
-        self.detect_signal(10)
+        th = threading.Thread(target=self.start_iperf, daemon=True)
+        th.start()
+
+        sleep(1)
+        self.detect_signal(self.test_sec)
 
 
 if __name__ == '__main__':
-    logger = Wifi_test_logger()
+    parser = argparse.ArgumentParser()
+    # parser.add_argument('-c', '--host', required=True,
+    #                     type=str, help='iperf server ip')
+#    parser.add_argument('-p', '--port', default=5201,
+#                        type=int, help='iperf server port')
+#    parser.add_argument('-S', '--tos', default=0, type=int,
+#                        help='type of service value')
+#    parser.add_argument('-b', '--bitrate', default=0,
+#                        type=str, help='the limit of bitrate(M/K)')
+    parser.add_argument('-t', '--test_secs', default=300, type=int,
+                       help='test time duration (secs)')
+#    parser.add_argument('-l', '--buffer_length', default=128, type=int,
+#                        help='length of buffer to read or write (default 128 KB for TCP, 8KB for UDP)')
+#
+#    parser.add_argument('-u', '--udp', action="store_true",
+#                        help='use udp instead of tcp.')
+#    parser.add_argument('-R', '--reverse', action="store_true",
+#                        help='reverse to downlink from server')
+    args = parser.parse_args()
+    logger = Wifi_test_logger(args.test_secs)
 
     try:
         logger.run()

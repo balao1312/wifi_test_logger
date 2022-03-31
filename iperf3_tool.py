@@ -7,14 +7,14 @@ import os
 from time import sleep
 from datetime import datetime
 from copy import copy
-from amari_logger import Amari_logger
 import argparse
 import re
+import pexpect
 
 
-class Iperf3_logger(Amari_logger):
+class Iperf3_runner:
 
-    def __init__(self, host, port, tos, bitrate, reverse, udp, exec_secs, buffer_length):
+    def __init__(self, host, port, tos, bitrate, reverse, udp, exec_secs, buffer_length, queue):
         super().__init__()
         self.host = host
         self.tos = tos
@@ -24,12 +24,7 @@ class Iperf3_logger(Amari_logger):
         self.udp = udp
         self.exec_secs = exec_secs
         self.buffer_length = buffer_length
-
-        self.record_count = 0
-        self.total_mbps = 0
-
-        self.log_file = self.log_folder.joinpath(
-            f'log_iperf3_{datetime.now().date()}')
+        self.q = queue
 
     def run(self):
         reverse_string = ' -R' if self.reverse else ''
@@ -39,46 +34,26 @@ class Iperf3_logger(Amari_logger):
         average_pattern = re.compile('.*(sender|receiver)')
 
         cmd = f'iperf3 -c {self.host} -p {self.port} -S {self.tos} -b {self.bitrate} -t {self.exec_secs}{buffer_length_string}{reverse_string}{udp_string} -f m --forceflush'
-        print(f'==> cmd send: \n\n\t{cmd}\n')
-
-        process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
+        print(f'==> iperf cmd send: \n\t{cmd}\n')
+        child = pexpect.spawnu(cmd, timeout=10)
 
         while True:
-            output = process.stdout.readline()
-            if process.poll() is not None:
-                print()
-                self.clean_buffer_and_send()
+            try:
+                child.expect('\n')
+                line = child.before
+                mbps = float(list(filter(None, line.split(' ')))[6])
+                self.q.put(mbps)
+
+                if average_pattern.match(line):
+                    print('-' * 80)
+                    print(average_pattern.search(line).group(0))
+                    continue
+            except pexpect.exceptions.EOF:
                 break
-
-            if output:
-                line = output.strip().decode('utf8')
-                record_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                try:
-                    mbps = float(list(filter(None, line.split(' ')))[6])
-                    self.record_count += 1
-                    self.total_mbps += mbps
-
-                    if average_pattern.match(line):
-                        print('-' * 80)
-                        print(average_pattern.search(line).group(0))
-                        continue
-
-                    print(
-                        f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, dst:{self.host}, tos:{self.tos}, bitrate: {mbps} Mbit/s')
-
-                    data = {
-                        'measurement': 'iperf3',
-                        'tags': {'tos': self.tos},
-                        'time': record_time,
-                        'fields': {'Mbps': mbps}
-                    }
-
-                    self.logging_with_buffer(data)
-
-                except (ValueError, IndexError):
-                    pass
-                except Exception as e:
-                    print(f'==> error: {e.__class__} {e}')
+            except (ValueError, IndexError):
+                pass
+            except Exception as e:
+                print(f'==> error: {e.__class__} {e}')
 
 
 if __name__ == '__main__':
@@ -102,7 +77,7 @@ if __name__ == '__main__':
                         help='reverse to downlink from server')
     args = parser.parse_args()
 
-    logger = Iperf3_logger(host=args.host, port=args.port, tos=args.tos,
+    logger = Iperf3_runner(host=args.host, port=args.port, tos=args.tos,
                            bitrate=args.bitrate, reverse=args.reverse, udp=args.udp, exec_secs=args.exec_secs, buffer_length=args.buffer_length)
 
     try:

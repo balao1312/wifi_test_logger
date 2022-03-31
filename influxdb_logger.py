@@ -50,7 +50,7 @@ class Influxdb_logger:
         self.is_sending = False
 
         if self.is_send_to_db:
-            print(f'\n==> database used in influxdb: {self.influxdb_dbname}')
+            print(f'\n==> database used in influxdb: {self.influxdb_ip} / {self.influxdb_dbname}\n')
             time.sleep(2)
 
     def send_line_notify(self, dst, msg):

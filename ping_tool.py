@@ -10,7 +10,7 @@ from copy import copy
 import argparse
 
 
-class Ping:
+class Ping_runner:
 
     def __init__(self, ip, tos, exec_secs, interval, queue):
         super().__init__()
@@ -38,7 +38,7 @@ class Ping:
         interval_string = f' -i {self.interval}'
 
         cmd = f'ping {self.ip} {tos_option_string} {self.tos}{exec_secs_string}{interval_string}'
-        print(f'==> cmd send: {cmd}\n')
+        print(f'==> ping cmd send: \n\t{cmd}\n')
         process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
 
         while True:
@@ -73,7 +73,7 @@ if __name__ == '__main__':
                         help='interval between packets')
     args = parser.parse_args()
 
-    logger = Ping(args.host, args.tos, args.exec_secs, args.interval)
+    logger = Ping_runner(args.host, args.tos, args.exec_secs, args.interval)
 
     print(
         f'==> start pinging : {args.host}, tos: {args.tos}, duration: {args.exec_secs} secs\n')
