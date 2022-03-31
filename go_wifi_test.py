@@ -112,9 +112,9 @@ class Wifi_test_logger(Influxdb_logger):
             record_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             data = {
                 'measurement': 'wifi_test',
-                'tags': {'position': '1'},
                 'time': record_time,
-                'fields': {'ssid': self.ssid,
+                'fields': {'position': '1',
+                           'ssid': self.ssid,
                            'channel': self.channel,
                            'bandwidth': self.bandwidth,
                            'signal': signal,
@@ -173,7 +173,7 @@ if __name__ == '__main__':
 #    parser.add_argument('-b', '--bitrate', default=0,
 #                        type=str, help='the limit of bitrate(M/K)')
     parser.add_argument('-t', '--test_secs', default=300, type=int,
-                       help='test time duration (secs)')
+                        help='test time duration (secs)')
 #    parser.add_argument('-l', '--buffer_length', default=128, type=int,
 #                        help='length of buffer to read or write (default 128 KB for TCP, 8KB for UDP)')
 #
