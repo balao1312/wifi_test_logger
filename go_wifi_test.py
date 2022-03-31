@@ -139,13 +139,13 @@ class Wifi_test_logger(Influxdb_logger):
         self.clean_buffer_and_send()
 
     def start_ping(self):
-        runner = Ping_runner(ip='192.168.50.210', tos=0, exec_secs=0,
+        runner = Ping_runner(ip='192.168.50.1', tos=0, exec_secs=0,
                              interval=1, queue=self.queue_ping)
         runner.run()
 
     def start_iperf(self):
         runner = Iperf3_runner(host='192.168.50.210', tos=0, port=5201, exec_secs=0,
-                               bitrate=0, udp=False, reverse=False, buffer_length=128,
+                               bitrate=0, udp=False, reverse=False, buffer_length=1024,
                                queue=self.queue_iperf)
         runner.run()
 
