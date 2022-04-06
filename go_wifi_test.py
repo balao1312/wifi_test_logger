@@ -59,7 +59,9 @@ class Wifi_test_logger(Influxdb_logger):
 
     def detect_signal(self, sec_to_test):
         cmd = 'iw wlo1 link'
-        total = 0
+        total_signal = 0
+        total_latency = 0
+        total_throughput = 0
 
         for sec, _ in enumerate(range(sec_to_test), start=1):
             cmd_result = check_output(
@@ -186,13 +188,21 @@ class Wifi_test_logger(Influxdb_logger):
 
             self.logging_with_buffer(data)
 
-            total += signal
+            total_signal += signal
+            total_latency += latency
+            total_throughput += throughput
 
             self.lost_msg_showed = False
             sleep(1)
 
-        self.avg_signal = round(total / sec_to_test, 2)
+        self.avg_signal = round(total_signal / sec_to_test, 2)
+        self.avg_latency = round(total_latency / sec_to_test, 2)
+        self.avg_throughput = round(total_throughput / sec_to_test, 2)
+
+        print('=' * 120)
         print(f'Avg signal: {self.avg_signal} dBm.')
+        print(f'Avg latency: {self.avg_latency} ms.')
+        print(f'Avg throughput: {self.avg_throughput} Mbit/s.')
 
         self.clean_buffer_and_send()
 
