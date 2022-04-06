@@ -24,7 +24,7 @@ class Wifi_test_logger(Influxdb_logger):
         self.router_ip = router_ip
         self.iperf_server_ip = iperf_server_ip
         self.reverse = reverse
-        self.stop_msg_showed = False
+        self.lost_msg_showed = False
 
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
@@ -65,9 +65,9 @@ class Wifi_test_logger(Influxdb_logger):
                 [cmd], timeout=5, stderr=STDOUT, shell=True).decode('utf8').strip()
 
             if cmd_result == 'Not connected.':
-                if not self.stop_msg_showed:
+                if not self.lost_msg_showed:
                     print('==> wifi connection lost.')
-                    self.stop_msg_showed = True
+                    self.lost_msg_showed = True
                 sleep(1)
                 continue
 
@@ -79,34 +79,72 @@ class Wifi_test_logger(Influxdb_logger):
 
             # get rx bitrate
             bitrate_pattern = re.compile(r'rx bitrate: (.*) MBit/s')
-            rx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
+            try:
+                rx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
+            except AttributeError:
+                if not self.lost_msg_showed:
+                    print('==> missing essential value.')
+                sleep(1)
+                continue
 
             # get tx bitrate
             bitrate_pattern = re.compile(r'tx bitrate: (.*) MBit/s')
-            tx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
+            try:
+                tx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
+            except AttributeError:
+                if not self.lost_msg_showed:
+                    print('==> missing essential value.')
+                sleep(1)
+                continue
 
             # get rx mcs
             rx_mcs_pattern = re.compile(r'rx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
-            rx_mcs = int(rx_mcs_pattern.search(cmd_result).group(2))
+            try:
+                rx_mcs = int(rx_mcs_pattern.search(cmd_result).group(2))
+            except AttributeError:
+                if not self.lost_msg_showed:
+                    print('==> missing essential value.')
+                sleep(1)
+                continue
 
             # get tx mcs
             tx_mcs_pattern = re.compile(r'tx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
-            tx_mcs = int(tx_mcs_pattern.search(cmd_result).group(2))
+            try:
+                tx_mcs = int(tx_mcs_pattern.search(cmd_result).group(2))
+            except AttributeError:
+                if not self.lost_msg_showed:
+                    print('==> missing essential value.')
+                sleep(1)
+                continue
 
             # get nss
             nss_pattern = re.compile(r'(HE-NSS|VHT-NSS) ([\d]*)\W')
-            nss = int(nss_pattern.search(cmd_result).group(2))
+            try:
+                nss = int(nss_pattern.search(cmd_result).group(2))
+            except AttributeError:
+                if not self.lost_msg_showed:
+                    print('==> missing essential value.')
+                sleep(1)
+                continue
 
             # get signal
             signal_pattern = re.compile(r'signal: (.*) dBm')
-            signal = int(signal_pattern.search(cmd_result).group(1))
+            try:
+                signal = int(signal_pattern.search(cmd_result).group(1))
+            except AttributeError:
+                if not self.lost_msg_showed:
+                    print('==> missing essential value.')
+                sleep(1)
+                continue
 
             # get ping latency from ping_tool
             try:
                 latency = self.queue_ping.get(timeout=3)
                 self.queue_ping.task_done()
             except queue.Empty:
-                print('==> Error: cannot ping router.')
+                if not self.lost_msg_showed:
+                    print('==> Error: cannot ping router.')
+                sleep(1)
                 continue
 
             # get iperf throughput from iperf3_tool
@@ -114,7 +152,9 @@ class Wifi_test_logger(Influxdb_logger):
                 throughput = self.queue_iperf.get(timeout=3)
                 self.queue_iperf.task_done()
             except queue.Empty:
-                print('==> Error: cannot connect to iperf server.')
+                if not self.lost_msg_showed:
+                    print('==> Error: cannot connect to iperf server.')
+                sleep(1)
                 continue
 
             print(
@@ -147,7 +187,7 @@ class Wifi_test_logger(Influxdb_logger):
 
             total += signal
 
-            self.stop_msg_showed = False
+            self.lost_msg_showed = False
             sleep(1)
 
         self.avg_signal = round(total / sec_to_test, 2)

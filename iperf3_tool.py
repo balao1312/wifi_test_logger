@@ -42,12 +42,10 @@ class Iperf3_runner:
                 child.expect('\n')
                 line = child.before
                 mbps = float(list(filter(None, line.split(' ')))[6])
+                if mbps == 0.0:
+                    continue
                 self.q.put(mbps)
 
-                if average_pattern.match(line):
-                    print('-' * 80)
-                    print(average_pattern.search(line).group(0))
-                    continue
             except pexpect.exceptions.EOF:
                 break
             except (ValueError, IndexError):
