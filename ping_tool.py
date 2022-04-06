@@ -39,7 +39,7 @@ class Ping_runner:
 
         cmd = f'ping {self.ip} {tos_option_string} {self.tos}{exec_secs_string}{interval_string}'
         print(f'==> ping cmd send: \n\t{cmd}\n')
-        process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE)
+        process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         while True:
             output = process.stdout.readline()

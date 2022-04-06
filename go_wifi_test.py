@@ -24,6 +24,8 @@ class Wifi_test_logger(Influxdb_logger):
         self.router_ip = router_ip
         self.iperf_server_ip = iperf_server_ip
         self.reverse = reverse
+        self.stop_msg_showed = False
+
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
 
@@ -63,7 +65,9 @@ class Wifi_test_logger(Influxdb_logger):
                 [cmd], timeout=5, stderr=STDOUT, shell=True).decode('utf8').strip()
 
             if cmd_result == 'Not connected.':
-                print('==> wifi connection lost.')
+                if not self.stop_msg_showed:
+                    print('==> wifi connection lost.')
+                    self.stop_msg_showed = True
                 sleep(1)
                 continue
 
@@ -98,12 +102,20 @@ class Wifi_test_logger(Influxdb_logger):
             signal = int(signal_pattern.search(cmd_result).group(1))
 
             # get ping latency from ping_tool
-            latency = self.queue_ping.get()
-            self.queue_ping.task_done()
+            try:
+                latency = self.queue_ping.get(timeout=3)
+                self.queue_ping.task_done()
+            except queue.Empty:
+                print('==> Error: cannot ping router.')
+                continue
 
             # get iperf throughput from iperf3_tool
-            throughput = self.queue_iperf.get()
-            self.queue_iperf.task_done()
+            try:
+                throughput = self.queue_iperf.get(timeout=3)
+                self.queue_iperf.task_done()
+            except queue.Empty:
+                print('==> Error: cannot connect to iperf server.')
+                continue
 
             print(
                 f'sec: {sec}, ssid: {self.ssid}, channel: {self.channel}, bandwidth: {self.bandwidth}')
@@ -134,6 +146,8 @@ class Wifi_test_logger(Influxdb_logger):
             self.logging_with_buffer(data)
 
             total += signal
+
+            self.stop_msg_showed = False
             sleep(1)
 
         self.avg_signal = round(total / sec_to_test, 2)
