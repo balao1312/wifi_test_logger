@@ -18,9 +18,10 @@ from iperf3_tool import Iperf3_runner
 
 class Wifi_test_logger(Influxdb_logger):
 
-    def __init__(self, test_sec, router_ip, iperf_server_ip, reverse):
+    def __init__(self, test_sec, router_ip, location, iperf_server_ip, reverse):
         super().__init__()
         self.test_sec = test_sec
+        self.location = location
         self.router_ip = router_ip
         self.iperf_server_ip = iperf_server_ip
         self.reverse = reverse
@@ -168,7 +169,7 @@ class Wifi_test_logger(Influxdb_logger):
             data = {
                 'measurement': 'wifi_test',
                 'time': record_time,
-                'fields': {'position': '1',
+                'fields': {'location': self.location,
                            'ssid': self.ssid,
                            'channel': self.channel,
                            'bandwidth': self.bandwidth,
@@ -221,6 +222,8 @@ class Wifi_test_logger(Influxdb_logger):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('-l', '--location', metavar='', default='0', type=str,
+                        help='tag data with location')
     parser.add_argument('-t', '--test_secs', metavar='', default=300, type=int,
                         help='test time duration (secs)')
     parser.add_argument('-r', '--router_ip', metavar='', default='192.168.50.1', type=str,
@@ -232,7 +235,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     logger = Wifi_test_logger(test_sec=args.test_secs, iperf_server_ip=args.iperf_server_ip,
-                              router_ip=args.router_ip, reverse=args.reverse)
+                              router_ip=args.router_ip, reverse=args.reverse, location=args.location)
 
     try:
         logger.run()
