@@ -18,9 +18,12 @@ from iperf3_tool import Iperf3_runner
 
 class Wifi_test_logger(Influxdb_logger):
 
-    def __init__(self, test_sec):
+    def __init__(self, test_sec, router_ip, iperf_server_ip, reverse):
         super().__init__()
         self.test_sec = test_sec
+        self.router_ip = router_ip
+        self.iperf_server_ip = iperf_server_ip
+        self.reverse = reverse
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
 
@@ -139,13 +142,13 @@ class Wifi_test_logger(Influxdb_logger):
         self.clean_buffer_and_send()
 
     def start_ping(self):
-        runner = Ping_runner(ip='192.168.50.1', tos=0, exec_secs=0,
+        runner = Ping_runner(ip=self.router_ip, tos=0, exec_secs=0,
                              interval=1, queue=self.queue_ping)
         runner.run()
 
     def start_iperf(self):
-        runner = Iperf3_runner(host='192.168.50.210', tos=0, port=5201, exec_secs=0,
-                               bitrate=0, udp=False, reverse=False, buffer_length=1024,
+        runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=0,
+                               bitrate=0, udp=False, reverse=self.reverse, buffer_length=1024,
                                queue=self.queue_iperf)
         runner.run()
 
@@ -164,25 +167,18 @@ class Wifi_test_logger(Influxdb_logger):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # parser.add_argument('-c', '--host', required=True,
-    #                     type=str, help='iperf server ip')
-#    parser.add_argument('-p', '--port', default=5201,
-#                        type=int, help='iperf server port')
-#    parser.add_argument('-S', '--tos', default=0, type=int,
-#                        help='type of service value')
-#    parser.add_argument('-b', '--bitrate', default=0,
-#                        type=str, help='the limit of bitrate(M/K)')
-    parser.add_argument('-t', '--test_secs', default=300, type=int,
+    parser.add_argument('-t', '--test_secs', metavar='', default=300, type=int,
                         help='test time duration (secs)')
-#    parser.add_argument('-l', '--buffer_length', default=128, type=int,
-#                        help='length of buffer to read or write (default 128 KB for TCP, 8KB for UDP)')
-#
-#    parser.add_argument('-u', '--udp', action="store_true",
-#                        help='use udp instead of tcp.')
-#    parser.add_argument('-R', '--reverse', action="store_true",
-#                        help='reverse to downlink from server')
+    parser.add_argument('-r', '--router_ip', metavar='', default='192.168.50.1', type=str,
+                        help='router\'s IP')
+    parser.add_argument('-s', '--iperf_server_ip', metavar='', default='192.168.50.210', type=str,
+                        help='iperf3\'s server IP')
+    parser.add_argument('-R', '--reverse', action="store_true",
+                        help='iperf direction reverse to downlink from server')
+
     args = parser.parse_args()
-    logger = Wifi_test_logger(args.test_secs)
+    logger = Wifi_test_logger(test_sec=args.test_secs, iperf_server_ip=args.iperf_server_ip,
+                              router_ip=args.router_ip, reverse=args.reverse)
 
     try:
         logger.run()
