@@ -5,3 +5,4 @@ venv
 credential.py
 logs
 *.swp
+summary

@@ -10,6 +10,8 @@ import re
 import threading
 import queue
 from subprocess import check_output, STDOUT
+from pathlib import Path
+import json
 
 from influxdb_logger import Influxdb_logger
 from ping_tool import Ping_runner
@@ -18,9 +20,9 @@ from iperf3_tool import Iperf3_runner
 
 class Wifi_test_logger(Influxdb_logger):
 
-    def __init__(self, test_sec, router_ip, location, iperf_server_ip, reverse):
+    def __init__(self, duration, router_ip, location, iperf_server_ip, reverse):
         super().__init__()
-        self.test_sec = test_sec
+        self.duration =duration 
         self.location = location
         self.router_ip = router_ip
         self.iperf_server_ip = iperf_server_ip
@@ -29,6 +31,9 @@ class Wifi_test_logger(Influxdb_logger):
 
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
+
+        self.summary_file = self.summary_folder.joinpath(
+            f'summary_wifi_test_{datetime.now().date()}')
 
         self.queue_ping = queue.Queue()
         self.queue_iperf = queue.Queue()
@@ -207,15 +212,36 @@ class Wifi_test_logger(Influxdb_logger):
         self.clean_buffer_and_send()
 
     def start_ping(self):
-        runner = Ping_runner(ip=self.router_ip, tos=0, exec_secs=0,
+        runner = Ping_runner(ip=self.router_ip, tos=0, duration=self.duration,
                              interval=1, queue=self.queue_ping)
-        runner.run()
+        self.ping_summary = runner.run()
+
+        # get ping mdev
+        self.latency_mdev = self.ping_summary.split('/')[-1][:-3]
 
     def start_iperf(self):
-        runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=0,
+        runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=self.duration,
                                bitrate=0, udp=False, reverse=self.reverse, buffer_length=1024,
                                queue=self.queue_iperf)
         runner.run()
+
+    def summary_to_file(self):
+        summary = {}
+        summary['time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        summary['location'] = self.location
+        summary['ssid'] = self.ssid
+        summary['channel'] = self.channel
+        summary['bandwidth'] = self.bandwidth
+        summary['avg_signal'] = self.avg_signal
+        summary['avg_latency'] = self.avg_latency
+        summary['avg_throughput'] = self.avg_throughput
+        summary['latency_mdev'] = self.latency_mdev
+        summary['duration'] = self.duration
+        summary['tput_direction'] = 'dl' if self.reverse else 'ul'
+
+        with open(self.summary_file, 'a') as f:
+            f.write(json.dumps(summary))
+            f.write('\n')
 
     def run(self):
         self.get_wifi_link_status()
@@ -227,14 +253,16 @@ class Wifi_test_logger(Influxdb_logger):
         th.start()
 
         sleep(1)
-        self.detect_signal(self.test_sec)
+        self.detect_signal(self.duration)
+        
+        self.summary_to_file()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--location', metavar='', default='0', type=str,
                         help='tag data with location')
-    parser.add_argument('-t', '--test_secs', metavar='', default=300, type=int,
+    parser.add_argument('-t', '--duration', metavar='', default=300, type=int,
                         help='test time duration (secs)')
     parser.add_argument('-r', '--router_ip', metavar='', default='192.168.50.1', type=str,
                         help='router\'s IP')
@@ -244,7 +272,7 @@ if __name__ == '__main__':
                         help='iperf direction reverse to downlink from server')
 
     args = parser.parse_args()
-    logger = Wifi_test_logger(test_sec=args.test_secs, iperf_server_ip=args.iperf_server_ip,
+    logger = Wifi_test_logger(duration=args.duration, iperf_server_ip=args.iperf_server_ip,
                               router_ip=args.router_ip, reverse=args.reverse, location=args.location)
 
     try:
@@ -267,4 +295,4 @@ if __name__ == '__main__':
         except SystemExit:
             os._exit(0)
     except Exception as e:
-        print(f'==> error: {e.__class__} {e}')
+        print(f'==> runner error: {e.__class__} {e}')

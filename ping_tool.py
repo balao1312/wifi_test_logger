@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import pexpect
 import subprocess
 import shlex
 import sys
@@ -8,15 +9,16 @@ from time import sleep
 from datetime import datetime
 from copy import copy
 import argparse
+import re
 
 
 class Ping_runner:
 
-    def __init__(self, ip, tos, exec_secs, interval, queue):
+    def __init__(self, ip, tos, duration, interval, queue):
         super().__init__()
         self.ip = ip
         self.tos = tos
-        self.exec_secs = exec_secs
+        self.duration = duration
         self.interval = interval
         self.q = queue
 
@@ -30,35 +32,38 @@ class Ping_runner:
     def run(self):
         if self.platform == 'Darwin':
             tos_option_string = '-z'
-            exec_secs_string = f' -t {self.exec_secs}' if self.exec_secs else ''
+            duration_string = f' -t {self.duration}' if self.duration else ''
         elif self.platform == 'Linux':
             tos_option_string = '-Q'
-            exec_secs_string = f' -c {self.exec_secs}' if self.exec_secs else ''
+            duration_string = f' -c {self.duration}' if self.duration else ''
 
         interval_string = f' -i {self.interval}'
 
-        cmd = f'ping {self.ip} {tos_option_string} {self.tos}{exec_secs_string}{interval_string}'
+        cmd = f'ping {self.ip} {tos_option_string} {self.tos}{duration_string}{interval_string}'
         print(f'==> ping cmd send: \n\t{cmd}\n')
-        process = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
+# pexpect
+        child = pexpect.spawnu(cmd, timeout=10)
+        summary_pattern = re.compile(r'rtt.*')
         while True:
-            output = process.stdout.readline()
-            if process.poll() is not None:
+            try:
+                child.expect('\n')
+                line = child.before
+
+                # get final summary and quit
+                if summary_pattern.match(line):
+                    return line
+
+                latency = float(
+                    list(filter(None, line.split(' ')))[6][5:10])
+                self.q.put(latency)
+
+            except pexpect.exceptions.EOF:
                 break
-
-            if output:
-                line = output.strip().decode('utf8')
-                try:
-                    latency = float(
-                        list(filter(None, line.split(' ')))[6][5:10])
-                    self.q.put(latency)
-                    # print(
-                    #     f'{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, dst:{self.ip}, tos: {self.tos}, latency: {latency} ms')
-
-                except (ValueError, IndexError):
-                    pass
-                except Exception as e:
-                    print(f'==> error: {e.__class__} {e}')
+            except (ValueError, IndexError):
+                pass
+            except Exception as e:
+                print(f'==> error: {e.__class__} {e}')
 
 
 if __name__ == '__main__':
@@ -67,16 +72,16 @@ if __name__ == '__main__':
                         type=str, help='destination ip')
     parser.add_argument('-Q', '--tos', default=0, type=int,
                         help='type of service value')
-    parser.add_argument('-t', '--exec_secs', default=0, type=int,
+    parser.add_argument('-t', '--duration', default=0, type=int,
                         help='time duration (secs)')
     parser.add_argument('-i', '--interval', default=1, type=float,
                         help='interval between packets')
     args = parser.parse_args()
 
-    logger = Ping_runner(args.host, args.tos, args.exec_secs, args.interval)
+    logger = Ping_runner(args.host, args.tos, args.duration, args.interval)
 
     print(
-        f'==> start pinging : {args.host}, tos: {args.tos}, duration: {args.exec_secs} secs\n')
+        f'==> start pinging : {args.host}, tos: {args.tos}, duration: {args.duration} secs\n')
 
     try:
         logger.run()

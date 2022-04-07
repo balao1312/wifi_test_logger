@@ -40,6 +40,10 @@ class Influxdb_logger:
         if not self.log_folder.exists():
             self.log_folder.mkdir()
 
+        self.summary_folder = Path.cwd().joinpath('summary')
+        if not self.summary_folder.exists():
+            self.summary_folder.mkdir()
+
         self.send_fail_file = self.log_folder.joinpath('send_fail')
 
         self.db_timeout = config['db_connect_timeout']
@@ -50,7 +54,8 @@ class Influxdb_logger:
         self.is_sending = False
 
         if self.is_send_to_db:
-            print(f'\n==> database used in influxdb: {self.influxdb_ip} / {self.influxdb_dbname}\n')
+            print(
+                f'\n==> database used in influxdb: {self.influxdb_ip} / {self.influxdb_dbname}\n')
             time.sleep(2)
 
     def send_line_notify(self, dst, msg):
