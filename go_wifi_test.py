@@ -20,13 +20,14 @@ from iperf3_tool import Iperf3_runner
 
 class Wifi_test_logger(Influxdb_logger):
 
-    def __init__(self, duration, router_ip, location, iperf_server_ip, reverse):
+    def __init__(self, duration, router_ip, location, iperf_server_ip, reverse, no_iperf):
         super().__init__()
-        self.duration =duration 
+        self.duration = duration
         self.location = location
         self.router_ip = router_ip
         self.iperf_server_ip = iperf_server_ip
         self.reverse = reverse
+        self.no_iperf = no_iperf
         self.lost_msg_showed = False
 
         self.log_file = self.log_folder.joinpath(
@@ -156,14 +157,17 @@ class Wifi_test_logger(Influxdb_logger):
                 continue
 
             # get iperf throughput from iperf3_tool
-            try:
-                throughput = self.queue_iperf.get(timeout=3)
-                self.queue_iperf.task_done()
-            except queue.Empty:
-                if not self.lost_msg_showed:
-                    print('==> Error: cannot connect to iperf server.')
-                sleep(1)
-                continue
+            if not self.no_iperf:
+                try:
+                    throughput = self.queue_iperf.get(timeout=3)
+                    self.queue_iperf.task_done()
+                except queue.Empty:
+                    if not self.lost_msg_showed:
+                        print('==> Error: cannot connect to iperf server.')
+                    sleep(1)
+                    continue
+            else:
+                throughput = 0.0
 
             print(
                 f'sec: {sec}, ssid: {self.ssid}, channel: {self.channel}, bandwidth: {self.bandwidth}')
@@ -249,18 +253,19 @@ class Wifi_test_logger(Influxdb_logger):
         th = threading.Thread(target=self.start_ping, daemon=True)
         th.start()
 
-        th = threading.Thread(target=self.start_iperf, daemon=True)
-        th.start()
+        if not self.no_iperf:
+            th = threading.Thread(target=self.start_iperf, daemon=True)
+            th.start()
 
         sleep(1)
         self.detect_signal(self.duration)
-        
+
         self.summary_to_file()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-l', '--location', metavar='', default='0', type=str,
+    parser.add_argument('-l', '--location', metavar='', required=True, type=str,
                         help='tag data with location')
     parser.add_argument('-t', '--duration', metavar='', default=300, type=int,
                         help='test time duration (secs)')
@@ -270,9 +275,11 @@ if __name__ == '__main__':
                         help='iperf3\'s server IP')
     parser.add_argument('-R', '--reverse', action="store_true",
                         help='iperf direction reverse to downlink from server')
+    parser.add_argument('-N', '--no_iperf', action="store_true",
+                        help='disable iperf test.')
 
     args = parser.parse_args()
-    logger = Wifi_test_logger(duration=args.duration, iperf_server_ip=args.iperf_server_ip,
+    logger = Wifi_test_logger(duration=args.duration, iperf_server_ip=args.iperf_server_ip, no_iperf=args.no_iperf,
                               router_ip=args.router_ip, reverse=args.reverse, location=args.location)
 
     try:
