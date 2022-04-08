@@ -221,7 +221,7 @@ class Wifi_test_logger(Influxdb_logger):
         self.ping_summary = runner.run()
 
         # get ping mdev
-        self.latency_mdev = self.ping_summary.split('/')[-1][:-3]
+        self.latency_mdev = self.ping_summary.split('/')[-1][:-3].strip()
 
     def start_iperf(self):
         runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=self.duration,
