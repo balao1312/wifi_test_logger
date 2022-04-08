@@ -2,11 +2,9 @@
 
 import pexpect
 import subprocess
-import shlex
 import sys
 import os
 from time import sleep
-from datetime import datetime
 from copy import copy
 import argparse
 import re
@@ -42,9 +40,9 @@ class Ping_runner:
         cmd = f'ping {self.ip} {tos_option_string} {self.tos}{duration_string}{interval_string}'
         print(f'==> ping cmd send: \n\t{cmd}\n')
 
-# pexpect
         child = pexpect.spawnu(cmd, timeout=10)
         summary_pattern = re.compile(r'rtt.*')
+        latency_pattern = re.compile(r'time=([0-9.]*) ms')
         while True:
             try:
                 child.expect('\n')
@@ -54,13 +52,12 @@ class Ping_runner:
                 if summary_pattern.match(line):
                     return line
 
-                latency = float(
-                    list(filter(None, line.split(' ')))[6][5:10])
+                latency = float(latency_pattern.search(line).group(1))
                 self.q.put(latency)
 
             except pexpect.exceptions.EOF:
                 break
-            except (ValueError, IndexError):
+            except AttributeError:
                 pass
             except Exception as e:
                 print(f'==> error: {e.__class__} {e}')
