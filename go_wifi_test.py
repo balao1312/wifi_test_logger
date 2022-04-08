@@ -152,7 +152,7 @@ class Wifi_test_logger(Influxdb_logger):
                 self.queue_ping.task_done()
             except queue.Empty:
                 if not self.lost_msg_showed:
-                    print('==> Error: cannot ping router.')
+                    print('==> Error: cannot get ping result from queue.')
                 sleep(1)
                 continue
 
@@ -163,7 +163,7 @@ class Wifi_test_logger(Influxdb_logger):
                     self.queue_iperf.task_done()
                 except queue.Empty:
                     if not self.lost_msg_showed:
-                        print('==> Error: cannot connect to iperf server.')
+                        print('==> Error: cannot get iperf result from queue.')
                     sleep(1)
                     continue
             else:

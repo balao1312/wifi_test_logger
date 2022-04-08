@@ -1,11 +1,8 @@
 #!/usr/bin/python3
 
-import subprocess
-import shlex
 import sys
 import os
 from time import sleep
-from datetime import datetime
 from copy import copy
 import argparse
 import re
@@ -31,24 +28,25 @@ class Iperf3_runner:
         udp_string = ' -u' if self.udp else ''
         buffer_length_string = f' -l {self.buffer_length}' if self.buffer_length else ''
 
-        average_pattern = re.compile('.*(sender|receiver)')
-
         cmd = f'iperf3 -c {self.host} -p {self.port} -S {self.tos} -b {self.bitrate} -t {self.exec_secs}{buffer_length_string}{reverse_string}{udp_string} -f m --forceflush'
         print(f'==> iperf cmd send: \n\t{cmd}\n')
         child = pexpect.spawnu(cmd, timeout=10)
+
+        mbps_pattern = re.compile(' ([0-9.]*) Mbits\/sec')
 
         while True:
             try:
                 child.expect('\n')
                 line = child.before
-                mbps = float(list(filter(None, line.split(' ')))[6])
+
+                mbps = float(mbps_pattern.search(line).group(1))
                 if mbps == 0.0:
                     continue
                 self.q.put(mbps)
 
             except pexpect.exceptions.EOF:
                 break
-            except (ValueError, IndexError):
+            except AttributeError:
                 pass
             except Exception as e:
                 print(f'==> error: {e.__class__} {e}')
