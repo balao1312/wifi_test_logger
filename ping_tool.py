@@ -41,22 +41,37 @@ class Ping_runner:
         print(f'==> ping cmd send: \n\t{cmd}\n')
 
         child = pexpect.spawnu(cmd, timeout=10)
-        summary_pattern = re.compile(r'rtt.*')
+
+        summary_pattern = re.compile(r'.*statistics.*')
         latency_pattern = re.compile(r'time=([0-9.]*) ms')
+        is_summary = False
+        summary_string = ''
+
         while True:
             try:
                 child.expect('\n')
                 line = child.before
 
                 # get final summary and quit
+                ''' output:
+                --- 192.168.50.1 ping statistics ---
+                5 packets transmitted, 5 received, 0% packet loss, time 4007ms
+                rtt min/avg/max/mdev = 2.764/5.925/12.220/3.572 ms
+                '''
+
                 if summary_pattern.match(line):
-                    return line
+                    # print('==> summary begin')
+                    is_summary = True
+
+                if is_summary:
+                    summary_string += f'{line}\n'
 
                 latency = float(latency_pattern.search(line).group(1))
                 self.q.put(latency)
 
+            # return when get statistics
             except pexpect.exceptions.EOF:
-                break
+                return summary_string
             except AttributeError:
                 pass
             except Exception as e:

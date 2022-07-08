@@ -30,6 +30,10 @@ class Wifi_test_logger(Influxdb_logger):
         self.no_iperf = no_iperf
         self.lost_msg_showed = False
 
+        self.total_signal = 0
+        self.total_latency = 0
+        self.total_throughput = 0
+
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
 
@@ -63,13 +67,13 @@ class Wifi_test_logger(Influxdb_logger):
         self.bandwidth = int(bandwidth_pattern.search(cmd_result).group(1))
         # print(self.bandwidth)
 
-    def detect_signal(self, sec_to_test):
+    def detect_signal(self, duration):
+        '''
+        show collected result from ping and iperf thread and send to buffer
+        '''
         cmd = 'iw wlo1 link'
-        total_signal = 0
-        total_latency = 0
-        total_throughput = 0
 
-        for sec, _ in enumerate(range(sec_to_test), start=1):
+        for sec, _ in enumerate(range(duration), start=1):
             cmd_result = check_output(
                 [cmd], timeout=5, stderr=STDOUT, shell=True).decode('utf8').strip()
 
@@ -148,7 +152,7 @@ class Wifi_test_logger(Influxdb_logger):
 
             # get ping latency from ping_tool
             try:
-                latency = self.queue_ping.get(timeout=3)
+                latency = self.queue_ping.get(timeout=1)
                 self.queue_ping.task_done()
             except queue.Empty:
                 if not self.lost_msg_showed:
@@ -159,7 +163,7 @@ class Wifi_test_logger(Influxdb_logger):
             # get iperf throughput from iperf3_tool
             if not self.no_iperf:
                 try:
-                    throughput = self.queue_iperf.get(timeout=3)
+                    throughput = self.queue_iperf.get(timeout=1)
                     self.queue_iperf.task_done()
                 except queue.Empty:
                     if not self.lost_msg_showed:
@@ -197,37 +201,44 @@ class Wifi_test_logger(Influxdb_logger):
 
             self.logging_with_buffer(data)
 
-            total_signal += signal
-            total_latency += latency
-            total_throughput += throughput
+            self.total_signal += signal
+            self.total_latency += latency
+            self.total_throughput += throughput
 
             self.lost_msg_showed = False
             sleep(1)
 
-        self.avg_signal = round(total_signal / sec_to_test, 2)
-        self.avg_latency = round(total_latency / sec_to_test, 2)
-        self.avg_throughput = round(total_throughput / sec_to_test, 2)
-
-        print('=' * 120)
-        print(f'Avg signal: {self.avg_signal} dBm.')
-        print(f'Avg latency: {self.avg_latency} ms.')
-        print(f'Avg throughput: {self.avg_throughput} Mbit/s.')
-
-        self.clean_buffer_and_send()
-
     def start_ping(self):
-        runner = Ping_runner(ip=self.router_ip, tos=0, duration=self.duration,
-                             interval=1, queue=self.queue_ping)
-        self.ping_summary = runner.run()
+        ping_runner = Ping_runner(ip=self.router_ip, tos=0, duration=self.duration,
+                                  interval=1, queue=self.queue_ping)
+        self.ping_summary = ping_runner.run()
 
-        # get ping mdev
-        self.latency_mdev = self.ping_summary.split('/')[-1][:-3].strip()
+        # show summary
+        # print(f'{self.ping_summary=}')
+
+        # get and show ping mdev
+        self.latency_mdev = self.ping_summary.split(
+            '\n')[-2].split('/')[-1][:-3].strip()
+        # print(f'{self.latency_mdev=}')
+
+        # get packet loss rate stuff
+        packet_sent_pattern = re.compile(r'([0-9]*) packets transmitted')
+        self.packet_sent = int(packet_sent_pattern.search(self.ping_summary).group(1))
+        print(f'{self.packet_sent=}')
+
+        packet_received_pattern = re.compile(r'([0-9]*) received')
+        self.packet_received = int(packet_received_pattern.search(self.ping_summary).group(1))
+        print(f'{self.packet_received=}')
+
+        loss_rate_pattern = re.compile(r'([0-9.]*)% packet loss')
+        self.packet_loss_rate = int(loss_rate_pattern.search(self.ping_summary).group(1))
+        print(f'{self.packet_loss_rate=}')
 
     def start_iperf(self):
-        runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=self.duration,
-                               bitrate=0, udp=False, reverse=self.reverse, buffer_length=1024,
-                               queue=self.queue_iperf)
-        runner.run()
+        iperf_runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=self.duration,
+                                     bitrate=0, udp=False, reverse=self.reverse, buffer_length=1024,
+                                     queue=self.queue_iperf)
+        iperf_runner.run()
 
     def summary_to_file(self):
         summary = {}
@@ -247,6 +258,17 @@ class Wifi_test_logger(Influxdb_logger):
             f.write(json.dumps(summary))
             f.write('\n')
 
+    def show_avg(self):
+        self.avg_signal = round(self.total_signal / self.duration, 2)
+        self.avg_latency = round(self.total_latency / self.duration, 2)
+        self.avg_throughput = round(self.total_throughput / self.duration, 2)
+
+        print('=' * 120)
+        print(f'Avg signal: {self.avg_signal} dBm.')
+        print(f'Avg latency: {self.avg_latency} ms.')
+        print(f'Avg throughput: {self.avg_throughput} Mbit/s.')
+        print('=' * 120)
+
     def run(self):
         self.get_wifi_link_status()
 
@@ -257,8 +279,14 @@ class Wifi_test_logger(Influxdb_logger):
             th = threading.Thread(target=self.start_iperf, daemon=True)
             th.start()
 
-        sleep(1)
+        # wait ping and iperf thread to start and put data in queue
+        sleep(2)
+
         self.detect_signal(self.duration)
+
+        self.show_avg()
+
+        self.clean_buffer_and_send()
 
         self.summary_to_file()
 
@@ -301,5 +329,5 @@ if __name__ == '__main__':
             sys.exit(0)
         except SystemExit:
             os._exit(0)
-    except Exception as e:
-        print(f'==> runner error: {e.__class__} {e}')
+    # except Exception as e:
+    #     print(f'==> wifi_logger_runner error: {e.__class__} {e}')
