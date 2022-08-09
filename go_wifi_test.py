@@ -152,7 +152,7 @@ class Wifi_test_logger(Influxdb_logger):
 
             # get ping latency from ping_tool
             try:
-                latency = self.queue_ping.get(timeout=1)
+                latency = self.queue_ping.get(timeout=3)
                 self.queue_ping.task_done()
             except queue.Empty:
                 if not self.lost_msg_showed:
@@ -209,7 +209,8 @@ class Wifi_test_logger(Influxdb_logger):
             sleep(1)
 
     def start_ping(self):
-        ping_runner = Ping_runner(ip=self.router_ip, tos=0, duration=self.duration,
+        # set ping tos = 240 to use high priority
+        ping_runner = Ping_runner(ip=self.router_ip, tos=240, duration=self.duration,
                                   interval=1, queue=self.queue_ping)
         self.ping_summary = ping_runner.run()
 
@@ -232,7 +233,7 @@ class Wifi_test_logger(Influxdb_logger):
 
         loss_rate_pattern = re.compile(r'([0-9.]*)% packet loss')
         self.packet_loss_rate = int(loss_rate_pattern.search(self.ping_summary).group(1))
-        print(f'{self.packet_loss_rate=}')
+        print(f'{self.packet_loss_rate=}%')
 
     def start_iperf(self):
         iperf_runner = Iperf3_runner(host=self.iperf_server_ip, tos=0, port=5201, exec_secs=self.duration,
