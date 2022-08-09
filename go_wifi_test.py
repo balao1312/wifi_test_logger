@@ -12,6 +12,7 @@ import queue
 from subprocess import check_output, STDOUT
 from pathlib import Path
 import json
+import csv
 
 from influxdb_logger import Influxdb_logger
 from ping_tool import Ping_runner
@@ -34,11 +35,18 @@ class Wifi_test_logger(Influxdb_logger):
         self.total_latency = 0
         self.total_throughput = 0
 
+        self.summary_folder = Path.cwd().joinpath('summary')
+        if not self.summary_folder.exists():
+            self.summary_folder.mkdir()
+
         self.log_file = self.log_folder.joinpath(
             f'log_wifi_test_{datetime.now().date()}')
 
         self.summary_file = self.summary_folder.joinpath(
-            f'summary_wifi_test_{datetime.now().date()}')
+            f'{datetime.now().date()}_wifi_test_summary')
+
+        self.summary_csv_file = self.summary_folder.joinpath(
+            f'{datetime.now().date()}_wifi_test_summary.csv')
 
         self.queue_ping = queue.Queue()
         self.queue_iperf = queue.Queue()
@@ -218,21 +226,24 @@ class Wifi_test_logger(Influxdb_logger):
         # print(f'{self.ping_summary=}')
 
         # get and show ping mdev
-        self.latency_mdev = self.ping_summary.split(
-            '\n')[-2].split('/')[-1][:-3].strip()
-        # print(f'{self.latency_mdev=}')
+        mdev_pattern = re.compile(r'/([0-9.]*) ms')
+        self.latency_mdev = float(mdev_pattern.search(self.ping_summary).group(1))
+        print(f'{self.latency_mdev=}')
 
         # get packet loss rate stuff
         packet_sent_pattern = re.compile(r'([0-9]*) packets transmitted')
-        self.packet_sent = int(packet_sent_pattern.search(self.ping_summary).group(1))
+        self.packet_sent = int(
+            packet_sent_pattern.search(self.ping_summary).group(1))
         print(f'{self.packet_sent=}')
 
         packet_received_pattern = re.compile(r'([0-9]*) received')
-        self.packet_received = int(packet_received_pattern.search(self.ping_summary).group(1))
+        self.packet_received = int(
+            packet_received_pattern.search(self.ping_summary).group(1))
         print(f'{self.packet_received=}')
 
         loss_rate_pattern = re.compile(r'([0-9.]*)% packet loss')
-        self.packet_loss_rate = int(loss_rate_pattern.search(self.ping_summary).group(1))
+        self.packet_loss_rate = int(
+            loss_rate_pattern.search(self.ping_summary).group(1))
         print(f'{self.packet_loss_rate=}%')
 
     def start_iperf(self):
@@ -241,23 +252,37 @@ class Wifi_test_logger(Influxdb_logger):
                                      queue=self.queue_iperf)
         iperf_runner.run()
 
-    def summary_to_file(self):
-        summary = {}
-        summary['time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        summary['location'] = self.location
-        summary['ssid'] = self.ssid
-        summary['channel'] = self.channel
-        summary['bandwidth'] = self.bandwidth
-        summary['avg_signal'] = self.avg_signal
-        summary['avg_latency'] = self.avg_latency
-        summary['avg_throughput'] = self.avg_throughput
-        summary['latency_mdev'] = self.latency_mdev
-        summary['duration'] = self.duration
-        summary['tput_direction'] = 'dl' if self.reverse else 'ul'
+    def summarize(self):
+        self.summary = {}
+        self.summary['time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.summary['location'] = self.location
+        self.summary['ssid'] = self.ssid
+        self.summary['channel'] = self.channel
+        self.summary['bandwidth'] = self.bandwidth
+        self.summary['avg_signal'] = self.avg_signal
+        self.summary['avg_latency'] = self.avg_latency
+        self.summary['avg_throughput'] = self.avg_throughput
+        self.summary['latency_mdev'] = self.latency_mdev
+        self.summary['duration'] = self.duration
+        self.summary['tput_direction'] = 'dl' if self.reverse else 'ul'
 
+    def summarize_to_file(self):
         with open(self.summary_file, 'a') as f:
-            f.write(json.dumps(summary))
+            f.write(json.dumps(self.summary))
             f.write('\n')
+
+    def summarize_to_csv(self):
+        headers = ['time', 'location', 'ssid', 'channel', 'bandwidth',  'avg_signal',
+                   'avg_latency', 'latency_mdev', 'tput_direction', 'avg_throughput', 'duration']
+
+        if not self.summary_csv_file.exists():
+            with open(self.summary_csv_file, 'w', encoding='utf_8') as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=headers)
+                writer.writeheader()
+
+        with open(self.summary_csv_file, 'a', encoding='utf_8') as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=headers)
+                writer.writerow(self.summary)
 
     def show_avg(self):
         self.avg_signal = round(self.total_signal / self.duration, 2)
@@ -289,7 +314,9 @@ class Wifi_test_logger(Influxdb_logger):
 
         self.clean_buffer_and_send()
 
-        self.summary_to_file()
+        self.summarize()
+        self.summarize_to_file()
+        self.summarize_to_csv()
 
 
 if __name__ == '__main__':

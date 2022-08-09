@@ -35,14 +35,9 @@ class Influxdb_logger:
         is_send_to_db = False
 
     def __init__(self):
-
         self.log_folder = Path.cwd().joinpath('logs')
         if not self.log_folder.exists():
             self.log_folder.mkdir()
-
-        self.summary_folder = Path.cwd().joinpath('summary')
-        if not self.summary_folder.exists():
-            self.summary_folder.mkdir()
 
         self.send_fail_file = self.log_folder.joinpath('send_fail')
 
