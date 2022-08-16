@@ -242,7 +242,7 @@ class Wifi_test_logger(Influxdb_logger):
         print(f'{self.packet_received=}')
 
         loss_rate_pattern = re.compile(r'([0-9.]*)% packet loss')
-        self.packet_loss_rate = int(
+        self.packet_loss_rate = float(
             loss_rate_pattern.search(self.ping_summary).group(1))
         print(f'{self.packet_loss_rate=}%')
 
