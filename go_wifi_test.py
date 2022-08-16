@@ -75,6 +75,18 @@ class Wifi_test_logger(Influxdb_logger):
         self.bandwidth = int(bandwidth_pattern.search(cmd_result).group(1))
         # print(self.bandwidth)
 
+        # get center freq
+        center_freq_pattern = re.compile(r'center1: (\d*) MHz')
+        self.center_freq = int(center_freq_pattern.search(cmd_result).group(1))
+        if self.center_freq < 3000:
+            print('\n==> Connect Wifi to 2.4 GHz.\n')
+            self.connected_at_5GHz = False
+        else:
+            print('\n==> Connect Wifi to 5 GHz.\n')
+            self.connected_at_5GHz = True
+
+        sleep(2)
+
     def detect_signal(self, duration):
         '''
         show collected result from ping and iperf thread and send to buffer
@@ -97,6 +109,8 @@ class Wifi_test_logger(Influxdb_logger):
             # rx bitrate: 58.5 Mbit/s VHT-MCS 9 80 MHz VHT-NSS 1
             # wifi 6
             # rx bitrate: 1200.9 MBit/s 80MHz HE-MCS 11 HE-NSS 2 HE-GI 0 HE-DCM 0
+            # 2.4 GHz
+            # rx bitrate: 144.4 MBit/s MCS 15 short GI
 
             # get rx bitrate
             bitrate_pattern = re.compile(r'rx bitrate: (.*) MBit/s')
@@ -104,7 +118,8 @@ class Wifi_test_logger(Influxdb_logger):
                 rx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
             except AttributeError:
                 if not self.lost_msg_showed:
-                    print('==> missing essential value.')
+                    print('==> missing essential value: rx bitrate.')
+                    print(cmd_result)
                 sleep(1)
                 continue
 
@@ -114,39 +129,56 @@ class Wifi_test_logger(Influxdb_logger):
                 tx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
             except AttributeError:
                 if not self.lost_msg_showed:
-                    print('==> missing essential value.')
+                    print('==> missing essential value: tx bitrate.')
+                    print(cmd_result)
                 sleep(1)
                 continue
 
             # get rx mcs
-            rx_mcs_pattern = re.compile(r'rx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
+            rx_mcs_pattern = re.compile(r'rx.*(HE-MCS|VHT-MCS|MCS) (\d*)\W')
             try:
                 rx_mcs = int(rx_mcs_pattern.search(cmd_result).group(2))
-            except AttributeError:
-                if not self.lost_msg_showed:
-                    print('==> missing essential value.')
-                sleep(1)
-                continue
+            except (AttributeError, ValueError):
+                # if connected to 2.4GHz, sometimes there is no rx mcs showed in cmd output.
+                if not self.connected_at_5GHz:
+                    tx_mcs = 0
+                else:
+                    if not self.lost_msg_showed:
+                        print('==> missing essential value: rx mcs.')
+                        print(cmd_result)
+                    sleep(1)
+                    continue
 
             # get tx mcs
-            tx_mcs_pattern = re.compile(r'tx.*(HE-MCS|VHT-MCS) ([^ ]*)\W')
+            tx_mcs_pattern = re.compile(r'tx.*(HE-MCS|VHT-MCS|MCS) (\d*)\W')
             try:
-                tx_mcs = int(tx_mcs_pattern.search(cmd_result).group(2))
-            except AttributeError:
-                if not self.lost_msg_showed:
-                    print('==> missing essential value.')
-                sleep(1)
-                continue
+                tx_mcs = int(tx_mcs_pattern.search(
+                    cmd_result).group(2).strip())
+            except (AttributeError, ValueError):
+                # if connected to 2.4GHz, sometimes there is no tx mcs showed in cmd output.
+                if not self.connected_at_5GHz:
+                    tx_mcs = 0
+                else:
+                    if not self.lost_msg_showed:
+                        print('==> missing essential value: tx mcs.')
+                        print(cmd_result)
+                    sleep(1)
+                    continue
 
             # get nss
-            nss_pattern = re.compile(r'(HE-NSS|VHT-NSS) ([\d]*)\W')
-            try:
-                nss = int(nss_pattern.search(cmd_result).group(2))
-            except AttributeError:
-                if not self.lost_msg_showed:
-                    print('==> missing essential value.')
-                sleep(1)
-                continue
+            # when connect to 2.4GHz there is no nss info in iw link output
+            nss_pattern = re.compile(r'(HE-NSS|VHT-NSS) (\d*)\W')
+            if not self.connected_at_5GHz:
+                nss = 0
+            else:
+                try:
+                    nss = int(nss_pattern.search(cmd_result).group(2))
+                except AttributeError:
+                    if not self.lost_msg_showed:
+                        print('==> missing essential value: nss.')
+                        print(cmd_result)
+                    sleep(1)
+                    continue
 
             # get signal
             signal_pattern = re.compile(r'signal: (.*) dBm')
@@ -227,7 +259,8 @@ class Wifi_test_logger(Influxdb_logger):
 
         # get and show ping mdev
         mdev_pattern = re.compile(r'/([0-9.]*) ms')
-        self.latency_mdev = float(mdev_pattern.search(self.ping_summary).group(1))
+        self.latency_mdev = float(
+            mdev_pattern.search(self.ping_summary).group(1))
         print(f'{self.latency_mdev=}')
 
         # get packet loss rate stuff
@@ -281,8 +314,8 @@ class Wifi_test_logger(Influxdb_logger):
                 writer.writeheader()
 
         with open(self.summary_csv_file, 'a', encoding='utf_8') as csv_file:
-                writer = csv.DictWriter(csv_file, fieldnames=headers)
-                writer.writerow(self.summary)
+            writer = csv.DictWriter(csv_file, fieldnames=headers)
+            writer.writerow(self.summary)
 
     def show_avg(self):
         self.avg_signal = round(self.total_signal / self.duration, 2)
