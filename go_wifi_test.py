@@ -29,7 +29,7 @@ class Wifi_test_logger(Influxdb_logger):
         self.iperf_server_ip = iperf_server_ip
         self.reverse = reverse
         self.no_iperf = no_iperf
-        self.lost_msg_showed = False
+        self.error_msg_showed = False
 
         self.total_signal = 0
         self.total_latency = 0
@@ -54,55 +54,63 @@ class Wifi_test_logger(Influxdb_logger):
     def get_wifi_link_status(self):
         # iw info
         cmd = 'iw wlo1 info'
-        # print(f'==> cmd send: \n\n\t{cmd}\n')
 
         cmd_result = check_output(
             [cmd], timeout=3, stderr=STDOUT, shell=True).decode('utf8').strip()
-        # print(cmd_result)
 
         # get ssid
         ssid_pattern = re.compile(r'ssid (.*)')
-        self.ssid = ssid_pattern.search(cmd_result).group(1)
-        # print(self.ssid)
+        try:
+            self.ssid = ssid_pattern.search(cmd_result).group(1)
+        except AttributeError:
+            self.ssid = None
+            self.channel = None
+            self.bandwidth = None
+            self.bandwidth = None
+            return False
 
         # get channel
         channel_pattern = re.compile(r'channel ([^,]*),')
         self.channel = channel_pattern.search(cmd_result).group(1)
-        # print(self.channel)
 
         # get bandwidth
         bandwidth_pattern = re.compile(r'width: (\d*) MHz')
         self.bandwidth = int(bandwidth_pattern.search(cmd_result).group(1))
-        # print(self.bandwidth)
 
         # get center freq
         center_freq_pattern = re.compile(r'center1: (\d*) MHz')
         self.center_freq = int(center_freq_pattern.search(cmd_result).group(1))
+
+        return True
+
+    def check_2dot4G_or_5G(self):
         if self.center_freq < 3000:
-            print('\n==> Connect Wifi to 2.4 GHz.\n')
+            # print('\n==> Connect Wifi to 2.4 GHz.\n')
             self.connected_at_5GHz = False
         else:
-            print('\n==> Connect Wifi to 5 GHz.\n')
+            # print('\n==> Connect Wifi to 5 GHz.\n')
             self.connected_at_5GHz = True
-
-        sleep(2)
 
     def detect_signal(self, duration):
         '''
         show collected result from ping and iperf thread and send to buffer
         '''
-        cmd = 'iw wlo1 link'
 
         for sec, _ in enumerate(range(duration), start=1):
-            cmd_result = check_output(
-                [cmd], timeout=5, stderr=STDOUT, shell=True).decode('utf8').strip()
 
-            if cmd_result == 'Not connected.':
-                if not self.lost_msg_showed:
-                    print('==> wifi connection lost.')
-                    self.lost_msg_showed = True
+            # check status first
+            wifi_connected = self.get_wifi_link_status()
+            if not wifi_connected and not self.error_msg_showed:
+                print('==> wifi connection lost.')
+                self.error_msg_showed = True
                 sleep(1)
                 continue
+
+            self.check_2dot4G_or_5G()
+
+            cmd = 'iw wlo1 link'
+            cmd_result = check_output(
+                [cmd], timeout=5, stderr=STDOUT, shell=True).decode('utf8').strip()
 
             # output difference from iw wlo1 link
             # wifi 5
@@ -117,7 +125,7 @@ class Wifi_test_logger(Influxdb_logger):
             try:
                 rx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
             except AttributeError:
-                if not self.lost_msg_showed:
+                if not self.error_msg_showed:
                     print('==> missing essential value: rx bitrate.')
                     print(cmd_result)
                 sleep(1)
@@ -128,7 +136,7 @@ class Wifi_test_logger(Influxdb_logger):
             try:
                 tx_bitrate = float(bitrate_pattern.search(cmd_result).group(1))
             except AttributeError:
-                if not self.lost_msg_showed:
+                if not self.error_msg_showed:
                     print('==> missing essential value: tx bitrate.')
                     print(cmd_result)
                 sleep(1)
@@ -143,7 +151,7 @@ class Wifi_test_logger(Influxdb_logger):
                 if not self.connected_at_5GHz:
                     tx_mcs = 0
                 else:
-                    if not self.lost_msg_showed:
+                    if not self.error_msg_showed:
                         print('==> missing essential value: rx mcs.')
                         print(cmd_result)
                     sleep(1)
@@ -159,7 +167,7 @@ class Wifi_test_logger(Influxdb_logger):
                 if not self.connected_at_5GHz:
                     tx_mcs = 0
                 else:
-                    if not self.lost_msg_showed:
+                    if not self.error_msg_showed:
                         print('==> missing essential value: tx mcs.')
                         print(cmd_result)
                     sleep(1)
@@ -174,7 +182,7 @@ class Wifi_test_logger(Influxdb_logger):
                 try:
                     nss = int(nss_pattern.search(cmd_result).group(2))
                 except AttributeError:
-                    if not self.lost_msg_showed:
+                    if not self.error_msg_showed:
                         print('==> missing essential value: nss.')
                         print(cmd_result)
                     sleep(1)
@@ -185,7 +193,7 @@ class Wifi_test_logger(Influxdb_logger):
             try:
                 signal = int(signal_pattern.search(cmd_result).group(1))
             except AttributeError:
-                if not self.lost_msg_showed:
+                if not self.error_msg_showed:
                     print('==> missing essential value.')
                 sleep(1)
                 continue
@@ -195,7 +203,7 @@ class Wifi_test_logger(Influxdb_logger):
                 latency = self.queue_ping.get(timeout=3)
                 self.queue_ping.task_done()
             except queue.Empty:
-                if not self.lost_msg_showed:
+                if not self.error_msg_showed:
                     print('==> Error: cannot get ping result from queue.')
                 sleep(1)
                 continue
@@ -206,7 +214,7 @@ class Wifi_test_logger(Influxdb_logger):
                     throughput = self.queue_iperf.get(timeout=1)
                     self.queue_iperf.task_done()
                 except queue.Empty:
-                    if not self.lost_msg_showed:
+                    if not self.error_msg_showed:
                         print('==> Error: cannot get iperf result from queue.')
                     sleep(1)
                     continue
@@ -245,7 +253,8 @@ class Wifi_test_logger(Influxdb_logger):
             self.total_latency += latency
             self.total_throughput += throughput
 
-            self.lost_msg_showed = False
+            self.error_msg_showed = False
+
             sleep(1)
 
     def start_ping(self):
@@ -339,7 +348,7 @@ class Wifi_test_logger(Influxdb_logger):
             th.start()
 
         # wait ping and iperf thread to start and put data in queue
-        sleep(2)
+        sleep(1)
 
         self.detect_signal(self.duration)
 
